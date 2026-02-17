@@ -79,7 +79,7 @@ Focus-Vault/
 
 **REST API** — Full CRUD + sync/generate/search endpoints. Build whatever frontend you want.
 
-## Features (18/19 shipped)
+## Features (19/20 shipped)
 
 | # | Feature | Status |
 |---|---------|--------|
@@ -102,6 +102,7 @@ Focus-Vault/
 | F-017 | REST API (FastAPI, full CRUD + triggers) | Done |
 | F-018 | Semantic search (Chroma vector DB, cosine similarity) | Done |
 | F-019 | Claude Code session capture (JSONL parsing, decision extraction) | Done |
+| F-020 | Claude Code skills system (auto-generate, search, install, context injection) | Done |
 
 ## Quick Start
 
@@ -202,7 +203,7 @@ src/
 
 ## Testing
 
-521+ tests covering every module. All external dependencies mocked.
+665+ tests covering every module. All external dependencies mocked.
 
 ```bash
 pytest tests/ -x -q
@@ -309,6 +310,16 @@ Know what you're working on across all machines, automatically.
 | Cross-source knowledge graph | Yes | No |
 
 The thesis: **what you tell AI systems > what other people email you.** AI conversations are the highest-signal input Focus will ever see — direct statements of intent, decisions, priorities, and knowledge. Email is context. AI conversations are direction. Build for both, but prioritize direction.
+
+## Simon — Standalone Memory for Claude Code
+
+The memory and context system is available as a standalone tool: **[Simon](https://github.com/nathanasimon/simon)**
+
+```bash
+npm install -g simon-memory
+```
+
+Simon records your Claude Code sessions, injects relevant context into every new prompt, and auto-generates reusable skills — without needing the full Focus stack. Works with any project.
 
 ## License
 
