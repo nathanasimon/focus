@@ -4,8 +4,8 @@
 > Every feature is listed here. If it's not here, it doesn't exist.
 > Update this file BEFORE building or changing any feature.
 
-Last updated: 2026-02-05
-Total features: 19 (9 MVP, 10 post-MVP) — 18 DONE, 1 PLANNED
+Last updated: 2026-02-17
+Total features: 20 (9 MVP, 11 post-MVP) — 19 DONE, 1 PLANNED
 
 ---
 
@@ -201,3 +201,13 @@ Total features: 19 (9 MVP, 10 post-MVP) — 18 DONE, 1 PLANNED
 - **CLI**: `focus capture [--project DIR] [--no-extract]`
 - **API**: `POST /capture?project_dir=...&extract=true`
 - **Notes**: Parses JSONL format, filters to meaningful user/assistant turns (skips sidechains, meta, commands, short messages). Builds condensed transcript for LLM. Decision extraction uses Claude Haiku with structured JSON output. Stores session transcript and decisions as separate raw_interactions with content-hash dedup. Only extracts from sessions with 3+ turns. Integrated into daemon (auto-scans each cycle). Skips already-ingested sessions.
+
+## F-020: Claude Code Skills System
+- **Status**: DONE | Post-MVP
+- **What**: Auto-generate, search, and manage Claude Code skills (SKILL.md files)
+- **Inputs**: Completed sessions (auto), user description (manual), GitHub repos (search)
+- **Outputs**: SKILL.md files in `~/.claude/skills/` or `.claude/skills/`
+- **Depends on**: F-019 (Session Capture), Anthropic API
+- **Key files**: `src/skills/generator.py`, `src/skills/analyzer.py`, `src/skills/registry.py`, `src/skills/installer.py`, `src/cli/skill_cmd.py`
+- **CLI**: `focus skill create|list|show|search|install|uninstall|auto-scan`
+- **Notes**: Three modes: (1) Auto-generate from successful sessions — quality gate (score >= 0.6, daily limit of 3), triggers after session_summary job via skill_extract worker job. (2) Manual creation — `focus skill create "description"` calls Haiku to generate instructions. (3) Public registry search — searches GitHub repos (anthropics/skills, awesome-lists) and installs SKILL.md files. All skills follow Agent Skills standard with YAML frontmatter. Tracks generated skills in `generated_skills` DB table for dedup. 84 tests.

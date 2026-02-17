@@ -567,6 +567,32 @@ class AgentTurnArtifact(Base):
     )
 
 
+class GeneratedSkillRecord(Base):
+    """Track skills that Focus has generated or installed."""
+
+    __tablename__ = "generated_skills"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    source: Mapped[str] = mapped_column(Text, nullable=False)  # "auto", "manual", "registry"
+    source_session_id: Mapped[Optional[str]] = mapped_column(Text)
+    source_repo: Mapped[Optional[str]] = mapped_column(Text)
+    installed_path: Mapped[str] = mapped_column(Text, nullable=False)
+    scope: Mapped[str] = mapped_column(Text, nullable=False)  # "personal" or "project"
+    quality_score: Mapped[Optional[float]] = mapped_column(Float)
+    skill_content_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        Index("idx_generated_skills_name", "name"),
+        Index("idx_generated_skills_source", "source"),
+        Index("idx_generated_skills_hash", "skill_content_hash"),
+    )
+
+
 class FocusJob(Base):
     __tablename__ = "focus_jobs"
 

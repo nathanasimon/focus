@@ -19,6 +19,7 @@ from src.cli.retrieve_cmd import app as retrieve_app
 from src.cli.sprint_cmd import app as sprint_app
 from src.cli.sync_cmd import app as sync_app
 from src.cli.task_cmd import app as task_app
+from src.cli.skill_cmd import app as skill_app
 from src.cli.worker_cmd import app as worker_app
 
 app = typer.Typer(
@@ -41,6 +42,7 @@ app.add_typer(retrieve_app, name="retrieve", help="Retrieve context for prompts"
 app.add_typer(context_app, name="context", help="Context retrieval and debugging")
 app.add_typer(hooks_app, name="hooks", help="Install/manage Claude Code hooks")
 app.add_typer(worker_app, name="worker", help="Manage context worker")
+app.add_typer(skill_app, name="skill", help="Manage Claude Code skills")
 
 
 def _setup_logging(verbose: bool = False):

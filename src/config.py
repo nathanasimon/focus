@@ -62,6 +62,17 @@ class ContextSettings(BaseSettings):
     worker_poll_interval: float = 2.0
 
 
+class SkillSettings(BaseSettings):
+    """Settings for the skills system."""
+
+    auto_generate: bool = True
+    min_quality_score: float = 0.6
+    default_scope: str = "personal"
+    max_auto_skills_per_day: int = 3
+    skill_generation_model: str = "claude-haiku-4-5-20251001"
+    github_token: str = ""
+
+
 class Settings(BaseSettings):
     """Top-level settings assembled from subsections."""
 
@@ -72,6 +83,7 @@ class Settings(BaseSettings):
     vault: VaultSettings = Field(default_factory=VaultSettings)
     raw_storage: RawStorageSettings = Field(default_factory=RawStorageSettings)
     context: ContextSettings = Field(default_factory=ContextSettings)
+    skills: SkillSettings = Field(default_factory=SkillSettings)
 
     @classmethod
     def load(cls, config_path: Optional[Path] = None) -> "Settings":
@@ -91,6 +103,7 @@ class Settings(BaseSettings):
                 vault=VaultSettings(**data.get("vault", {})),
                 raw_storage=RawStorageSettings(**data.get("raw_storage", {})),
                 context=ContextSettings(**data.get("context", {})),
+                skills=SkillSettings(**data.get("skills", {})),
             )
 
         return cls()

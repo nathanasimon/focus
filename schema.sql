@@ -389,3 +389,28 @@ CREATE INDEX IF NOT EXISTS idx_focus_jobs_locked ON focus_jobs(locked_until) WHE
 CREATE INDEX IF NOT EXISTS idx_focus_jobs_dedupe ON focus_jobs(dedupe_key);
 CREATE INDEX IF NOT EXISTS idx_agent_turn_artifacts_turn ON agent_turn_artifacts(turn_id);
 CREATE INDEX IF NOT EXISTS idx_agent_turn_artifacts_type ON agent_turn_artifacts(artifact_type);
+
+-- =====================================================
+-- SKILLS SYSTEM TABLES
+-- =====================================================
+
+-- Track auto-generated and installed skills
+CREATE TABLE IF NOT EXISTS generated_skills (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT NOT NULL,
+    description TEXT NOT NULL,
+    source TEXT NOT NULL,  -- "auto", "manual", "registry"
+    source_session_id TEXT,
+    source_repo TEXT,
+    installed_path TEXT NOT NULL,
+    scope TEXT NOT NULL,  -- "personal" or "project"
+    quality_score FLOAT,
+    skill_content_hash TEXT NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_generated_skills_name ON generated_skills(name);
+CREATE INDEX IF NOT EXISTS idx_generated_skills_source ON generated_skills(source);
+CREATE INDEX IF NOT EXISTS idx_generated_skills_hash ON generated_skills(skill_content_hash);

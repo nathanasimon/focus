@@ -30,6 +30,7 @@ JOB_KINDS = [
     "entity_extract",
     "artifact_extract",
     "session_summary",
+    "skill_extract",
 ]
 
 
@@ -421,6 +422,81 @@ async def process_session_summary_job(job: FocusJob) -> None:
         await session.flush()
         logger.info("Session summary generated: %s", cc_session_id[:12])
 
+        # Enqueue skill extraction (low priority, runs after everything else)
+        await enqueue_job(
+            session=session,
+            kind="skill_extract",
+            payload={"session_id": cc_session_id},
+            dedupe_key=f"skill_extract:{cc_session_id}",
+            priority=30,
+        )
+
+
+async def process_skill_extract_job(job: FocusJob) -> None:
+    """Analyze a completed session and auto-generate a skill if it qualifies.
+
+    Args:
+        job: The job to process. Payload must contain session_id.
+    """
+    from src.skills.analyzer import analyze_session_for_skill
+    from src.skills.generator import generate_skill_md
+    from src.skills.installer import install_skill as install_skill_to_disk
+
+    cc_session_id = job.payload["session_id"]
+
+    async with get_session() as session:
+        agent_session = (await session.execute(
+            select(AgentSession)
+            .where(AgentSession.session_id == cc_session_id)
+        )).scalar_one_or_none()
+
+        if not agent_session:
+            return
+
+        candidate = await analyze_session_for_skill(session, agent_session)
+        if not candidate:
+            logger.debug("Session %s did not qualify for skill", cc_session_id[:12])
+            return
+
+        skill = await generate_skill_md(
+            description=candidate.description,
+            context=candidate.context,
+            source="auto",
+        )
+        if not skill:
+            logger.debug("Skill generation failed for session %s", cc_session_id[:12])
+            return
+
+        try:
+            path = install_skill_to_disk(name=skill.name, content=skill.full_content)
+            logger.info(
+                "Auto-generated skill '%s' from session %s -> %s",
+                skill.name, cc_session_id[:12], path,
+            )
+
+            # Record in database for dedup tracking
+            import hashlib
+
+            from src.storage.models import GeneratedSkillRecord
+
+            record = GeneratedSkillRecord(
+                name=skill.name,
+                description=skill.description,
+                source="auto",
+                source_session_id=cc_session_id,
+                installed_path=str(path),
+                scope="personal",
+                quality_score=candidate.quality_score,
+                skill_content_hash=hashlib.md5(
+                    " ".join(skill.description.lower().split()).encode()
+                ).hexdigest(),
+            )
+            session.add(record)
+            await session.flush()
+
+        except (FileExistsError, ValueError) as e:
+            logger.debug("Skipped skill for session %s: %s", cc_session_id[:12], e)
+
 
 async def _dispatch_job(job: FocusJob) -> None:
     """Dispatch a job to the appropriate handler.
@@ -437,6 +513,7 @@ async def _dispatch_job(job: FocusJob) -> None:
         "entity_extract": process_entity_extract_job,
         "artifact_extract": process_artifact_extract_job,
         "session_summary": process_session_summary_job,
+        "skill_extract": process_skill_extract_job,
     }
 
     handler = handlers.get(job.kind)
