@@ -1,8 +1,10 @@
 """Context retriever — queries PostgreSQL for relevant context based on classification."""
 
 import logging
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 from uuid import UUID
 
@@ -11,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.context.classifier import PromptClassification
+from src.skills.installer import InstalledSkill, list_installed_skills, _parse_frontmatter
 from src.storage.models import (
     AgentSession,
     AgentTurn,
@@ -121,6 +124,9 @@ class ContextRetriever:
         if not project_ids:
             blocks.extend(await self._get_open_commitments(session))
         blocks.extend(await self._get_active_sprints(session))
+
+        # Skill matching — disk I/O, no DB needed
+        blocks.extend(self._get_relevant_skills(classification))
 
         # Deduplicate by source_id
         seen = set()
@@ -444,6 +450,168 @@ class ContextRetriever:
             ))
 
         return blocks
+
+
+    def _get_relevant_skills(
+        self,
+        classification: PromptClassification,
+        max_skills: int = 3,
+    ) -> list[ContextBlock]:
+        """Match installed skills against the current prompt classification.
+
+        Pure disk I/O + keyword matching — no LLM or DB calls.
+        Reads SKILL.md files, matches name/description against prompt keywords.
+
+        Args:
+            classification: The prompt classification result.
+            max_skills: Maximum number of skills to return.
+
+        Returns:
+            List of ContextBlocks for relevant skills.
+        """
+        try:
+            cwd = Path(classification.workspace_project).resolve() if classification.workspace_project else None
+        except (TypeError, ValueError):
+            cwd = None
+
+        # Scan both personal and project-scoped skills
+        skills = list_installed_skills(scope="all", project_path=cwd)
+        if not skills:
+            return []
+
+        # Build keyword set from prompt classification
+        prompt_words = set()
+        for slug in classification.project_slugs:
+            prompt_words.update(slug.lower().split("-"))
+        for name in classification.person_names:
+            prompt_words.update(name.lower().split())
+        if classification.workspace_project:
+            prompt_words.update(classification.workspace_project.lower().split("-"))
+        if classification.query_type != "general":
+            prompt_words.add(classification.query_type)
+        for path in classification.file_paths:
+            # Extract filename without extension
+            stem = Path(path).stem.lower()
+            prompt_words.update(re.split(r"[_\-.]", stem))
+
+        # Filter out very short/common words
+        prompt_words = {w for w in prompt_words if len(w) > 2}
+
+        if not prompt_words:
+            return []
+
+        scored: list[tuple[float, InstalledSkill, str]] = []
+        for skill in skills:
+            score, body = _score_skill_relevance(skill, prompt_words)
+            if score > 0:
+                scored.append((score, skill, body))
+
+        # Sort by score descending, take top N
+        scored.sort(key=lambda x: x[0], reverse=True)
+
+        blocks = []
+        for score, skill, body in scored[:max_skills]:
+            # Include skill body (instructions) truncated to stay within budget
+            content = _format_skill_content(skill, body)
+            blocks.append(ContextBlock(
+                source_type="skill",
+                source_id=f"skill:{skill.name}",
+                title=f"Skill: {skill.name}",
+                content=content,
+                relevance_score=min(0.85, 0.5 + score * 0.35),
+            ))
+
+        return blocks
+
+
+def _score_skill_relevance(
+    skill: InstalledSkill,
+    prompt_words: set[str],
+) -> tuple[float, str]:
+    """Score how relevant a skill is to the current prompt.
+
+    Args:
+        skill: The installed skill to score.
+        prompt_words: Set of lowercase keywords from the prompt classification.
+
+    Returns:
+        Tuple of (relevance_score 0.0-1.0, skill body text).
+    """
+    # Build the skill's keyword set from name + description + body
+    skill_words = set()
+    skill_words.update(re.split(r"[_\-\s]+", skill.name.lower()))
+    if skill.description:
+        skill_words.update(re.split(r"[\s,.\-_]+", skill.description.lower()))
+
+    # Read body for deeper matching
+    body = ""
+    try:
+        body = skill.path.read_text()
+    except (OSError, IOError):
+        pass
+
+    if body:
+        # Extract body after frontmatter
+        parts = body.split("---", 2)
+        if len(parts) >= 3:
+            body_text = parts[2].strip()
+        else:
+            body_text = body
+        # Add first ~200 words from body to keyword set
+        body_words = re.split(r"[\s,.\-_:;()]+", body_text.lower())[:200]
+        skill_words.update(w for w in body_words if len(w) > 2)
+
+    # Filter out common/short words
+    skill_words = {w for w in skill_words if len(w) > 2}
+
+    if not skill_words:
+        return 0.0, body
+
+    # Compute overlap
+    overlap = prompt_words & skill_words
+    if not overlap:
+        return 0.0, body
+
+    # Score: fraction of prompt words that matched, weighted by total matches
+    coverage = len(overlap) / len(prompt_words)
+    # Bonus for name match (skill name directly matches a prompt keyword)
+    name_parts = set(re.split(r"[_\-]+", skill.name.lower()))
+    name_overlap = prompt_words & name_parts
+    name_bonus = 0.3 if name_overlap else 0.0
+
+    score = min(1.0, coverage + name_bonus)
+    return score, body
+
+
+def _format_skill_content(skill: InstalledSkill, raw_content: str) -> str:
+    """Format skill content for context injection.
+
+    Includes the skill description and a truncated body.
+
+    Args:
+        skill: The installed skill.
+        raw_content: Raw SKILL.md content from disk.
+
+    Returns:
+        Formatted content string.
+    """
+    parts = [skill.description] if skill.description else []
+
+    # Extract body after frontmatter
+    if raw_content:
+        sections = raw_content.split("---", 2)
+        if len(sections) >= 3:
+            body = sections[2].strip()
+        else:
+            body = raw_content.strip()
+
+        # Truncate body to ~300 chars
+        if len(body) > 300:
+            body = body[:297] + "..."
+        parts.append(body)
+
+    parts.append(f"(full instructions: {skill.path})")
+    return " | ".join(parts)
 
 
 def _relative_time(dt: Optional[datetime]) -> str:

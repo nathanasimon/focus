@@ -17,6 +17,7 @@ _TYPE_LABELS = {
     "sprint": "Sprint",
     "file_context": "File",
     "error": "Error",
+    "skill": "Skill",
 }
 
 
